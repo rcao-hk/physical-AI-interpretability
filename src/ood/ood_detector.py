@@ -9,8 +9,8 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from scipy import stats
 
-from lerobot.policies.act.modeling_act import ACTPolicy
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.policies.act.modeling_act import ACTPolicy
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from src.sae.sae import MultiModalSAE
 from src.sae.builder import SAEBuilder
 from src.sae.token_sampler import TokenSampler, TokenSamplerConfig

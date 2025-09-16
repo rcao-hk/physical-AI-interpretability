@@ -16,8 +16,10 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.policies.factory import make_policy
+# from lerobot.datasets.lerobot_dataset import LeRobotDataset
+# from lerobot.policies.factory import make_policy
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.policies.factory import make_policy
 from lerobot.configs.policies import PreTrainedConfig
 
 from src.attention_maps import ACTPolicyWithAttention
@@ -28,52 +30,149 @@ def none_or_int(value):
         return None
     return int(value)
 
+# def encode_video_ffmpeg(frames, output_filename, fps, pix_fmt_in="bgr24"):
+#     """
+#     Encodes a list of numpy frames into a video using ffmpeg.
+#     """
+#     if not frames:
+#         print(f"No frames to encode for {output_filename}.")
+#         return
+
+#     height, width, channels = frames[0].shape
+#     if channels != 3:
+#         print(f"Error: Frames must be 3-channel (BGR). Got {channels} channels.")
+#         return
+
+#     command = [
+#         'ffmpeg',
+#         '-y',  # Overwrite output file if it exists
+#         '-f', 'rawvideo',
+#         '-vcodec', 'rawvideo',
+#         '-s', f'{width}x{height}',  # Frame size
+#         '-pix_fmt', pix_fmt_in,     # Input pixel format
+#         '-r', str(fps),             # Frames per second
+#         '-i', '-',                  # Input comes from stdin
+#         '-an',                      # No audio
+#         '-vcodec', 'libx264',       # Output video codec
+#         '-pix_fmt', 'yuv420p',      # Output pixel format for broad compatibility
+#         '-crf', '23',               # Constant Rate Factor (quality, 18-28 is good range)
+#         output_filename
+#     ]
+
+#     try:
+#         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+#         for frame in frames:
+#             process.stdin.write(frame.tobytes())
+        
+#         stdout, stderr = process.communicate()
+        
+#         if process.returncode != 0:
+#             print(f"Error encoding video {output_filename}:")
+#             print(f"FFmpeg stderr:\n{stderr.decode(errors='ignore')}")
+#         else:
+#             print(f"Successfully encoded video: {output_filename}")
+            
+#     except FileNotFoundError:
+#         print("Error: ffmpeg command not found. Please ensure ffmpeg is installed and in your PATH.")
+#     except Exception as e:
+#         print(f"An unexpected error occurred during video encoding for {output_filename}: {e}")
+
+# import os
+import shutil
+# import subprocess
+# import numpy as np
+
 def encode_video_ffmpeg(frames, output_filename, fps, pix_fmt_in="bgr24"):
     """
-    Encodes a list of numpy frames into a video using ffmpeg.
+    Encodes a list of numpy frames (H,W,3, uint8) into a video using ffmpeg via stdin.
     """
+    # 0) 基础检查
     if not frames:
         print(f"No frames to encode for {output_filename}.")
         return
-
-    height, width, channels = frames[0].shape
-    if channels != 3:
-        print(f"Error: Frames must be 3-channel (BGR). Got {channels} channels.")
+    if shutil.which("ffmpeg") is None:
+        print("Error: ffmpeg not found in PATH.")
         return
 
+    # 1) 统一检查形状和类型
+    H, W, C = frames[0].shape
+    if C != 3:
+        print(f"Error: Frames must be 3-channel. Got {C}.")
+        return
+    for i, f in enumerate(frames):
+        if f.shape != (H, W, C):
+            print(f"Error: Frame {i} has shape {f.shape}, expected {(H, W, C)}.")
+            return
+        if f.dtype != np.uint8:
+            # 若不是 uint8，转换一下，避免异常
+            frames[i] = f.astype(np.uint8, copy=False)
+
+    # 2) 确保输出目录存在
+    out_dir = os.path.dirname(os.path.abspath(output_filename))
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
+    # 3) 组装命令（加上 loglevel=error，便于看关键报错）
     command = [
-        'ffmpeg',
-        '-y',  # Overwrite output file if it exists
-        '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
-        '-s', f'{width}x{height}',  # Frame size
-        '-pix_fmt', pix_fmt_in,     # Input pixel format
-        '-r', str(fps),             # Frames per second
-        '-i', '-',                  # Input comes from stdin
-        '-an',                      # No audio
-        '-vcodec', 'libx264',       # Output video codec
-        '-pix_fmt', 'yuv420p',      # Output pixel format for broad compatibility
-        '-crf', '23',               # Constant Rate Factor (quality, 18-28 is good range)
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-y",
+        "-f", "rawvideo",
+        "-vcodec", "rawvideo",
+        "-pix_fmt", pix_fmt_in,        # 输入像素格式（OpenCV 默认 BGR）
+        "-s:v", f"{W}x{H}",            # 注意用 -s:v 更明确
+        "-r", str(float(fps)),         # 确保是正数
+        "-i", "-",                     # 从 stdin 读入原始帧
+        "-an",
+        "-vcodec", "libopenh264",
+        "-pix_fmt", "yuv420p",
+        "-crf", "23",
+        # "-preset", "veryfast",         # 可选：更快一些
+        "-movflags", "+faststart",     # 可选：优化 mp4 首播
         output_filename
     ]
 
+    # 4) 尝试启动 ffmpeg
     try:
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for frame in frames:
-            process.stdin.write(frame.tobytes())
-        
-        stdout, stderr = process.communicate()
-        
-        if process.returncode != 0:
-            print(f"Error encoding video {output_filename}:")
-            print(f"FFmpeg stderr:\n{stderr.decode(errors='ignore')}")
-        else:
-            print(f"Successfully encoded video: {output_filename}")
-            
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=10**8
+        )
     except FileNotFoundError:
-        print("Error: ffmpeg command not found. Please ensure ffmpeg is installed and in your PATH.")
-    except Exception as e:
-        print(f"An unexpected error occurred during video encoding for {output_filename}: {e}")
+        print("Error: ffmpeg command not found. Please ensure ffmpeg is installed and in PATH.")
+        return
+
+    # 5) 写入数据（捕获 BrokenPipe 以输出 stderr）
+    try:
+        for f in frames:
+            process.stdin.write(f.tobytes())
+        process.stdin.close()  # 关键：写完要关闭，给 ffmpeg EOF
+    except BrokenPipeError:
+        # ffmpeg 已经退出，读取 stderr 看原因
+        err = process.stderr.read().decode(errors="ignore")
+        print(f"Broken pipe while writing to ffmpeg for {output_filename}.")
+        print("FFmpeg stderr:\n" + err)
+        process.wait()
+        return
+
+    # 6) 等待并检查退出码
+    ret = process.wait()
+    out = process.stdout.read().decode(errors="ignore")
+    err = process.stderr.read().decode(errors="ignore")
+    if ret != 0:
+        print(f"Error encoding video {output_filename} (return code {ret}).")
+        if err.strip():
+            print("FFmpeg stderr:\n" + err)
+        else:
+            print("No stderr captured; check parameters and output path.")
+    else:
+        print(f"Successfully encoded video: {output_filename}")
+
+
 
 def load_policy(policy_path: str, dataset_meta, policy_overrides: list = None) -> Tuple[torch.nn.Module, dict]:
     """Load and initialize a policy from checkpoint."""
@@ -289,8 +388,8 @@ def analyze_episode(dataset: LeRobotDataset,
                 encode_video_ffmpeg(cam_buffer, output_filename, dataset.fps)
         
         # if side_by_side_buffer:
-        output_filename_sbs = f"{output_dir}/attention_ep{episode_id}_combined_{timestamp_str}.mp4"
-        encode_video_ffmpeg(side_by_side_buffer, output_filename_sbs, dataset.fps)
+        # output_filename_sbs = f"{output_dir}/attention_ep{episode_id}_combined_{timestamp_str}.mp4"
+        # encode_video_ffmpeg(side_by_side_buffer, output_filename_sbs, dataset.fps)
     
     # Analyze and save importance results
     analysis_results = {
@@ -307,6 +406,8 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze policy behavior on dataset episodes")
     parser.add_argument("--dataset-repo-id", type=str, required=True,
                         help="Repository ID of the dataset to analyze")
+    parser.add_argument("--dataset-root", type=str, default=None,
+                        help="Root directory of the dataset (if not using default cache)")
     parser.add_argument("--episode-id", type=int, default=None,
                         help="Episode ID to analyze (if not specified, analyzes all episodes)")
     parser.add_argument("--policy-path", type=str, required=True,
@@ -338,7 +439,7 @@ def main():
     
     # Load dataset
     try:
-        dataset = LeRobotDataset(args.dataset_repo_id)
+        dataset = LeRobotDataset(args.dataset_repo_id, root=args.dataset_root)
         print(f"Dataset loaded successfully. Total episodes: {dataset.num_episodes}")
         
     except Exception as e:

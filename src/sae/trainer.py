@@ -12,9 +12,9 @@ from tqdm import tqdm
 import wandb
 from safetensors.torch import save_file, load_file
 
-from lerobot.policies.factory import make_policy
+from lerobot.common.policies.factory import make_policy
 from lerobot.configs.policies import PreTrainedConfig
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 from src.utils import make_dataset_without_config, get_repo_hash
 from src.utils.naming import get_experiment_name, get_cache_name

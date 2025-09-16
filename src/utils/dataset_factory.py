@@ -4,13 +4,13 @@ import torch
 import logging
 from pprint import pformat
 
-from lerobot.constants import HF_LEROBOT_HOME
-from lerobot.datasets.lerobot_dataset import (
+from lerobot.common.constants import HF_LEROBOT_HOME
+from lerobot.common.datasets.lerobot_dataset import (
     LeRobotDatasetMetadata,
     LeRobotDataset,
     MultiLeRobotDataset,
 )
-from lerobot.datasets.factory import IMAGENET_STATS
+from lerobot.common.datasets.factory import IMAGENET_STATS
 
 def make_dataset_without_config(
     repo_id: str,
